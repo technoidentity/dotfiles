@@ -1,0 +1,93 @@
+#! /bin/zsh
+
+is_ubuntu() {
+    has_cmd lsb_release || return 1
+    local os
+    os=$(lsb_release -i | cut -d ':' -f2)
+    [[ "$os" == *"Ubuntu" ]] || [[ "$os" == *"neon" ]] || [[ "$os" == *"elementary OS" ]] || [[ "$os" == *"LinuxMint" ]]
+}
+
+is_mac() {
+    [[ "$OSTYPE" == "darwin"* ]]
+}
+
+has_cmd() {
+    command -v $1 > /dev/null
+}
+
+if is_ubuntu; then
+    export JAVA_HOME="/usr/lib/jvm/java-8-openjdk-amd64/"
+    export JDK_HOME="/usr/lib/jvm/java-8-oracle"
+fi
+
+if is_mac; then
+    export JAVA_HOME=`/usr/libexec/java_home -v 1.8 2> /dev/null`
+    export JDK_HOME=`/usr/libexec/java_home -v 1.8 2> /dev/null`
+fi
+
+if [[ -s ~/.nvm/nvm.sh ]]; then
+    export NVM_DIR="$HOME/.nvm"
+    source "$HOME/.nvm/nvm.sh"
+fi
+
+export PATH="$HOME/bin:$PATH"
+
+[[ $- = *i* ]] || return 0
+
+# code for interactive shell only
+
+if [[ -n "$ZSH_VERSION" ]]; then
+    [ -d ~/.slimzsh ] || git clone --recursive https://github.com/changs/slimzsh.git ~/.slimzsh
+
+    if [[ -e ~/.slimzsh/slim.zsh ]]; then
+    source "$HOME/.slimzsh/slim.zsh"
+    else
+        autoload -U compinit promptinit
+        compinit
+        promptinit
+        prompt walters
+    fi
+    unsetopt correct_all
+elif [[ -n "$BASH_VERSION" ]]; then
+    [ -d ~/.liquidprompt ] || git clone https://github.com/nojhan/liquidprompt.git ~/.liquidprompt
+    [ -f ~/.liquidprompt/liquidprompt ] && source ~/.liquidprompt/liquidprompt
+fi
+
+if is_ubuntu; then
+    alias trash=trash-put
+    alias open="xdg-open"
+fi
+
+technoidentity_upgrade_all() {
+    is_ubuntu && sudo apt-get update && sudo apt-get upgrade -y
+    is_mac && has_cmd brew && brew update && brew upgrade
+
+    local dir=$(pwd)
+
+    if cd ~/.technoidentity/dotfiles; then
+            git pull --ff-only
+    fi
+    cd $dir
+
+    has_cmd npm && npm update -g
+}
+
+alias upa=technoidentity_upgrade_all
+alias gst="git status"
+
+if has_cmd emacs; then
+    export ALTERNATE_EDITOR=""
+    export EDITOR="emacsclient -t"
+    export VISUAL="emacsclient -c"
+
+    alias ec="emacsclient -c -n"
+    alias et="emacsclient -t"
+fi
+
+if is_mac; then
+    alias ls='ls -G'
+else
+    alias ls='ls --color=auto'
+fi
+
+alias j=z

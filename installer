@@ -1,0 +1,619 @@
+#! /bin/bash
+
+BOLD=$(tput bold)
+RED=$(tput setaf 1)
+GREEN=$(tput setaf 2)
+YELLOW=$(tput setaf 3)
+RESET=$(tput sgr0)
+
+log() {
+    echo "
+${BOLD}${GREEN}TECHNOIDENTITY: ${RESET} $1
+" | tee -a ~/.technoidentity-installer.log
+}
+
+warn() {
+    echo "
+${BOLD}${YELLOW}WARNING: ${RESET} $1
+" | tee -a ~/.technoidentity-installer.log
+}
+
+err_exit() {
+    echo "
+${BOLD}${RED}FATAL : ${RESET} $1
+" | tee -a ~/.technoidentity-installer.log
+
+    exit 1
+}
+
+is_ubuntu() {
+    has_cmd lsb_release || return 1
+    local os
+    os=$(lsb_release -i | cut -d ':' -f2)
+    [[ "$os" == *"Ubuntu" ]] || [[ "$os" == *"neon" ]] || [[ "$os" == *"elementary" ]] || [[ "$os" == *"LinuxMint" ]]
+}
+
+is_mac() {
+    [[ "$OSTYPE" == "darwin"* ]]
+}
+
+has_cmd() {
+    command -v "$1" > /dev/null
+}
+
+smd() {
+    [ -d "$1" ] || mkdir -p "$1" 2> /dev/null
+}
+
+
+srm() {
+    for f in "$@"; do
+        if [ -L "$f" ]; then
+            rm -f "$f"
+        elif is_ubuntu; then
+            trash-put "$f" 2> /dev/null && log "Trashed $f"
+        else
+            trash "$f" 2> /dev/null && log "Trashed $f"
+        fi
+    done
+}
+
+smv() {
+    mv "$1" "$2" 2> /dev/null
+}
+
+sln() {
+    if ! [ -e "$1" ]; then
+        warn "$1 does not exist, cannot create the link $2"
+        return 1
+    elif [ -L "$2" ]; then
+        srm "$2"
+    elif [ -e "$2" ]; then
+        warn "$2 exists and not a symbolic link! not creating link"
+        return 1
+    fi
+    ln -s "$1" "$2"
+}
+
+fln() {
+    if [ -e "$1" ]; then
+        srm "$2"
+    else
+        warn "$1 does not exist, cannot create the link $2"
+        return 1
+    fi
+    ln -s "$1" "$2"
+}
+
+pre_cmd_check() {
+    for cmd in "$@"; do
+        has_cmd "$cmd" || err_exit "$cmd not installed, quitting"
+    done
+}
+
+cmd_check() {
+    for cmd in "$@"; do
+        has_cmd "$cmd" || warn "$cmd not installed"
+    done
+}
+
+dir_exists() {
+    [[ -d "$1" ]]
+}
+
+pre_dir_check() {
+    for dir in "$@"; do
+        dir_exists "$dir" || err_exit "$dir does not exist, quitting"
+    done
+}
+
+dir_check() {
+    for dir in "$@"; do
+        dir_exists "$dir" || warn "$dir does not exist"
+    done
+}
+
+ln_to_exists() {
+    local rl=readlink
+    is_mac && rl=greadlink
+    [[ "$1" == $($rl -f "$2") ]]
+}
+
+ln_check() {
+    ln_to_exists "$1" "$2" || warn "$2 not a link to $1"
+}
+
+ppa_exists() {
+    ls /etc/apt/sources.list.d | grep "$1" > /dev/null
+}
+
+ppa_check() {
+    ppa_exists "$1" || warn "$1 ppa not added"
+}
+
+source_exists() {
+    grep "$1" "$2" > /dev/null
+}
+
+source_check() {
+    source_exists "$1" "$2" || warn "$1 not sourced in $2"
+}
+
+ssource() {
+    [ -L "$2" ] && srm "$2"
+    touch "$2"
+    source_exists "$1" "$2" && return 1
+    log "sourcing $1 in $2"
+    echo "source $1" >> "$2"
+}
+
+vsext_exists() {
+    code --list-extensions | grep "$1" > /dev/null
+}
+
+vsext_check() {
+    for p in "$@"; do
+	vsext_exists "$p" || warn "$p vscode extension not installed"
+    done
+}
+
+npm_exists() {
+    npm list --global --depth=0 "$1" 2> /dev/null | grep "$1" > /dev/null
+}
+
+npm_check() {
+    for p in "$@"; do
+        npm_exists "$p" || warn "$p package not installed"
+    done
+}
+
+sclone() {
+    local dest=${*: -1}
+    local src=${*: -2:1}
+
+    if [ -d "$dest" ]; then
+        cd "$dest" && git pull --ff-only
+        cd
+    else
+        log "Cloning $src to $dest"
+        git clone "$@"
+    fi
+}
+
+fclone() {
+    [ -d "$2" ] && srm "$2"
+    log "Cloning $1 to $2"
+    git clone "$1" "$2"
+}
+
+keep_sudo_running() {
+    sudo -v
+    while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2> /dev/null &
+}
+
+sinstall() {
+    if is_ubuntu; then
+        sudo apt-get install -y "$@" || err_exit "apt-get($*) failed, quitting"
+    elif is_mac; then
+        brew install "$@" || err_exit "brew($*) failed, quitting"
+    fi
+}
+
+vsexti() {
+    has_cmd code || return 1
+
+    for p in "$@"; do
+	if ! vsext_exists "$p"; then
+	    code --install-extension "$p"
+	fi
+    done
+}
+
+npmi() {
+    has_cmd npm || return 1
+
+    for p in "$@"; do
+        npm_exists "$p" || npm install -g "$p"
+    done
+}
+
+add_chrome_ppa() {
+    is_ubuntu || return 1
+    ppa_exists google-chrome && return 0
+
+    log "Adding google chrome ppa"
+    wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+    sudo sh -c 'echo "deb http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+}
+
+add_vscode_ppa() {
+    is_ubuntu || return 1
+    ppa_exists 'vscode' && return 0
+
+    wget -q -O - https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg
+    sudo mv microsoft.gpg /etc/apt/trusted.gpg.d/microsoft.gpg
+
+    echo "deb [arch=amd64] http://packages.microsoft.com/repos/vscode stable main" | sudo tee -a /etc/apt/sources.list.d/vscode.list
+}
+
+add_sbt_ppa() {
+    is_ubuntu || return 1
+    ppa_exists 'sbt' && return 0
+
+    echo "deb https://dl.bintray.com/sbt/debian /" | sudo tee /etc/apt/sources.list.d/sbt.list > /dev/null
+    sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 2EE0EA64E40A89B84B2DF73499E82A75642AC823
+}
+
+ubuntu_update() {
+    is_ubuntu || return 1
+    log "Updating ubuntu..."
+    sudo apt-get update || err_exit "apt-get update failed, quitting"
+}
+
+ubuntu_upgrade() {
+    is_ubuntu || return 1
+    log "Upgrading packages..."
+    sudo apt-get upgrade -y || err_exit "apt-get upgrade failed, quitting"
+}
+
+add_ppas() {
+    is_ubuntu || return 1
+
+    sinstall software-properties-common
+
+    [ -n "$WEB" ] && add_chrome_ppa
+    [ -n "$WEB" ] && add_vscode_ppa
+    [ -n "$SCALA" ] && add_sbt_ppa
+}
+
+ubuntu_essential_install() {
+    is_ubuntu || return 1
+
+    add_ppas
+    ubuntu_update
+    ubuntu_upgrade
+
+    sinstall curl wget git trash-cli tree silversearcher-ag build-essential ubuntu-make
+    [ -n "$WEB" ] && sinstall google-chrome-stable
+}
+
+brew_update() {
+    is_mac || return 1
+    brew update
+}
+
+brew_upgrade() {
+    is_mac || return 1
+    brew upgrade
+}
+
+brew_install() {
+    is_mac || return 1
+    has_cmd brew && return 1
+    pre_cmd_check ruby
+
+    log "Installing homebrew..."
+    ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+
+    pre_cmd_check brew
+}
+
+mac_essential_install() {
+    is_mac || return 1
+
+    brew_install
+    brew_update
+    brew_upgrade
+
+    sinstall wget trash tree gpg the_silver_searcher coreutils
+    brew cask install iterm2
+}
+
+bash_install() {
+    ssource '~/.technoidentity/dotfiles/shellrc' ~/.bashrc
+    sclone https://github.com/nojhan/liquidprompt.git ~/.liquidprompt
+}
+
+essential_install() {
+    ubuntu_essential_install
+    mac_essential_install
+}
+
+emacs_install() {
+    is_ubuntu && sinstall emacs aspell aspell-en editorconfig exuberant-ctags
+    if is_mac; then
+        brew cask install emacs
+        brew install aspell --with-lang-en
+        brew install editorconfig
+    fi
+
+    smd ~/.technoidentity/emacses/emacs
+    fln ~/.technoidentity/dotfiles/emacs-init.el ~/.technoidentity/emacses/emacs/init.el
+    fln ~/.technoidentity/emacses/emacs ~/.emacs.d
+}
+
+vscode_install() {
+    is_ubuntu && sinstall -y code
+    is_mac && brew cask install visual-studio-code
+
+    has_cmd code || return 1
+
+    vsexti msjsdiag.debugger-for-chrome eg2.tslint dbaeumer.vscode-eslint esbenp.prettier-vscode
+}
+
+zsh_install() {
+    sinstall zsh
+    sclone --recursive https://github.com/changs/slimzsh.git ~/.slimzsh
+    ssource '~/.technoidentity/dotfiles/shellrc' ~/.zshrc
+}
+
+java_install() {
+    is_ubuntu && sinstall openjdk-8-jdk
+    is_mac && brew cask install caskroom/versions/java8
+}
+
+scala_install() {
+    java_install
+
+    sinstall scala sbt
+
+    is_mac && brew cask install intellij-idea
+    if is_ubuntu && ! [ -e "$HOME/.local/share/umake/ide/idea" ]; then
+        umake ide idea "$HOME/.local/share/umake/ide/idea"
+    fi
+}
+
+clojure_install() {
+    java_install
+
+    is_ubuntu && sinstall rlwrap
+
+    has_cmd lein && return 0
+    curl -L https://raw.githubusercontent.com/technomancy/leiningen/stable/bin/lein > ~/bin/lein
+    chmod a+x ~/bin/lein
+}
+
+nvm_install() {
+    [ -s ~/.nvm/nvm.sh ] && source ~/.nvm/nvm.sh
+    if ! has_cmd nvm; then
+         curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.33.11/install.sh | bash
+         [ -s ~/.nvm/nvm.sh ] && source ~/.nvm/nvm.sh
+    fi
+    has_cmd nvm || return 1
+
+    nvm install node
+    nvm alias default node
+}
+
+web_install() {
+    nvm_install
+
+    log "Installing npm packages for web development..."
+    npmi typescript yarn eslint tslint parcel
+}
+
+clone_dotfiles() {
+    sclone https://github.com/technoidentity/dotfiles.git ~/.technoidentity/dotfiles
+    cd
+}
+
+select_everything() {
+    WEB="web"
+    CLOJURE="clojure"
+    SCALA="scala"
+}
+
+script_options() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            everything)
+                select_everything
+                shift
+                ;;
+            clojure)
+                CLOJURE="clojure"
+                shift
+                ;;
+            scala)
+                SCALA="scala"
+                shift
+                ;;
+            web)
+                WEB="web"
+                shift
+                ;;
+            diagnostics)
+                DIAGNOSTICS="diagnostics"
+                shift
+                ;;
+            *)
+                err_exit "Unknwon option $1, quitting"
+                ;;
+        esac
+    done
+}
+
+create_dirs() {
+    smd ~/bin
+    smd ~/.technoidentity/emacses
+}
+
+installer() {
+    script_options "$@"
+
+    if [ -n "$DIAGNOSTICS" ]; then
+        post_installer_check
+        exit 0
+    fi
+
+    log "Installing $SCALA $WEB $CLOJURE..."
+
+    essential_install
+
+    pre_installer_check
+
+    clone_dotfiles
+
+    bash_install
+    zsh_install
+
+    if [ -n "$CLOJURE" ]; then
+        clojure_install
+        emacs_install
+    fi
+
+    [ -n "$SCALA" ] && scala_install
+
+    if [ -n "$WEB" ]; then
+        web_install
+        vscode_install
+    fi
+
+    log "Set zsh as your default shell..."
+    chsh -s /bin/zsh
+
+    post_installer_check
+
+    log "Installation done!"
+}
+
+does_not_exist() {
+    for f in "$@"; do
+        [[ -e "$f" ]] || [[ -L "$f" ]] || [[ -d "$f" ]] && warn "$f does exist"
+    done
+}
+
+pre_installer_check() {
+    pre_cmd_check git curl wget unzip make
+    if is_ubuntu; then
+        pre_cmd_check trash-put
+    else
+       pre_cmd_check trash
+    fi
+}
+
+ppas_check() {
+    is_ubuntu || return 1
+
+    [ -n "$WEB" ] && ppa_check google-chrome
+    [ -n "$WEB" ] && ppa_check vscode
+    [ -n "$SCALA" ] && ppa_check sbt
+}
+
+essential_check() {
+    ppas_check
+    cmd_check curl wget git tree
+    is_ubuntu && cmd_check gcc make trash-put
+    is_ubuntu && [ -n "$WEB" ] && cmd_check google-chrome
+    is_mac && cmd_check gpg gls trash
+
+    dir_check ~/.technoidentity/dotfiles
+}
+
+dotfiles_check() {
+    dir_check ~/.technoidentity/dotfiles
+}
+
+emacs_check() {
+    cmd_check emacs aspell ctags
+    cmd_check editorconfig
+
+    ln_check ~/.technoidentity/dotfiles/emacs-init.el ~/.technoidentity/emacses/emacs/init.el
+    ln_check ~/.technoidentity/emacses/emacs ~/.emacs.d
+}
+
+vscode_check() {
+    cmd_check code
+    vsext_check msjsdiag.debugger-for-chrome eg2.tslint dbaeumer.vscode-eslint esbenp.prettier-vscode
+}
+
+zsh_check() {
+    cmd_check zsh
+
+    dir_check ~/.slimzsh
+    source_check '~/.technoidentity/dotfiles/shellrc' ~/.zshrc
+}
+
+bash_check() {
+    dir_check ~/.liquidprompt
+    source_check '~/.technoidentity/dotfiles/shellrc' ~/.bashrc
+}
+
+java_check() {
+    cmd_check javac
+}
+
+scala_check() {
+    java_check
+    cmd_check scala sbt
+}
+
+clojure_check() {
+    java_check
+    cmd_check lein
+    is_ubuntu && cmd_check rlwrap
+}
+
+web_check() {
+    [ -s ~/.nvm/nvm.sh ] && source ~/.nvm/nvm.sh
+
+    cmd_check npm node
+    is_ubuntu && cmd_check nvm
+
+    has_cmd npm || return 1
+    cmd_check yarn eslint tslint parcel tsc
+}
+
+post_installer_check() {
+    log "Running diagnostics..."
+
+    essential_check
+    dotfiles_check
+
+    zsh_check
+    bash_check
+
+    if [ -n "$CLOJURE" ]; then
+      emacs_check
+      clojure_check
+    fi
+
+    [ -n "$SCALA" ] && scala_check
+
+    if [ -n "$WEB" ]; then
+        web_check
+        vscode_check
+    fi
+
+    if is_ubuntu; then
+        grep "$USER" /etc/passwd | grep zsh > /dev/null ||  warn "zsh not your default shell"
+    fi
+
+    log "diagnostics done!"
+}
+
+try_trash() {
+    if has_cmd trash; then
+        trash "$@" 2> /dev/null
+    elif has_cmd trash-put; then
+        trash-put "$@" 2> /dev/null
+    else
+        rm -rf "$@"
+    fi
+}
+
+PWD=$(pwd)
+
+is_ubuntu || is_mac || err_exit "Your operating system is not supported. This script supports ubuntu and mac"
+
+try_trash ~/.technoidentity-installer.log ~/.technoidentity-error.log ~/.technoidentity-output.log
+
+keep_sudo_running
+
+create_dirs
+
+export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
+
+installer "$@" > >(tee ~/.technoidentity-output.log) 2> >(tee ~/.technoidentity-error.log >&2)
+
+cd "$PWD"
