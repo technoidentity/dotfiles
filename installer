@@ -338,7 +338,21 @@ vscode_install() {
 
     has_cmd code || return 1
 
-    vsexti msjsdiag.debugger-for-chrome eg2.tslint dbaeumer.vscode-eslint esbenp.prettier-vscode
+    vsexti esbenp.prettier-vscode
+    vsexti ms-vscode.vscode-typescript-tslint-plugin
+    vsexti msjsdiag.debugger-for-chrome
+    vsexti dbaeumer.vscode-eslint
+    vsexti streetsidesoftware.code-spell-checker
+    vsexti formulahendry.auto-close-tag
+    vsexti formulahendry.auto-rename-tag
+    vsexti letrieu.expand-region
+    vsexti coenraads.bracket-pair-colorizer
+    vsexti vincaslt.highlight-matching-tag
+    vsexti orta.vscode-jest
+    vsexti eamodio.gitlens
+    vsexti wayou.vscode-todo-highlight
+    vsexti ms-vsliveshare.vsliveshare
+    vsexti ms-vsliveshare.vsliveshare-audio
 }
 
 zsh_install() {
@@ -524,7 +538,22 @@ emacs_check() {
 
 vscode_check() {
     cmd_check code
-    vsext_check msjsdiag.debugger-for-chrome eg2.tslint dbaeumer.vscode-eslint esbenp.prettier-vscode
+
+    vsexti esbenp.prettier-vscode
+    vsext_check ms-vscode.vscode-typescript-tslint-plugin
+    vsext_check msjsdiag.debugger-for-chrome
+    vsext_check dbaeumer.vscode-eslint
+    vsext_check streetsidesoftware.code-spell-checker
+    vsext_check formulahendry.auto-close-tag
+    vsext_check formulahendry.auto-rename-tag
+    vsext_check letrieu.expand-region
+    vsext_check coenraads.bracket-pair-colorizer
+    vsext_check vincaslt.highlight-matching-tag
+    vsext_check orta.vscode-jest
+    vsext_check eamodio.gitlens
+    vsext_check wayou.vscode-todo-highlight
+    vsext_check ms-vsliveshare.vsliveshare
+    vsext_check ms-vsliveshare.vsliveshare-audio
 }
 
 zsh_check() {
